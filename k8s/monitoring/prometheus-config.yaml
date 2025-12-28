@@ -1,0 +1,71 @@
+# Prometheus Configuration
+# This ConfigMap contains the prometheus.yml configuration file
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: payflow
+data:
+  prometheus.yml: |
+    # Global configuration
+    global:
+      scrape_interval: 15s      # How often to scrape targets
+      evaluation_interval: 15s  # How often to evaluate rules
+
+    # Scrape configurations
+    # Each job defines a set of targets to scrape
+    scrape_configs:
+      # Prometheus scrapes itself
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      # Account Service
+      - job_name: 'account-service'
+        metrics_path: '/actuator/prometheus'
+        static_configs:
+          - targets: ['account-service:8081']
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            replacement: 'account-service'
+
+      # Transaction Service
+      - job_name: 'transaction-service'
+        metrics_path: '/actuator/prometheus'
+        static_configs:
+          - targets: ['transaction-service:8082']
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            replacement: 'transaction-service'
+
+      # Notification Service
+      - job_name: 'notification-service'
+        metrics_path: '/actuator/prometheus'
+        static_configs:
+          - targets: ['notification-service:8083']
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            replacement: 'notification-service'
+
+      # API Gateway
+      - job_name: 'api-gateway'
+        metrics_path: '/actuator/prometheus'
+        static_configs:
+          - targets: ['api-gateway:8080']
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            replacement: 'api-gateway'
+
+      # Kafka Exporter
+      - job_name: 'kafka'
+        static_configs:
+          - targets: ['kafka-exporter:9308']
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            replacement: 'kafka'
+

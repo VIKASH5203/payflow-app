@@ -17,6 +17,7 @@ import java.util.List;
 
 /**
  * REST Controller for Account operations
+ * Version: 1.1.0 - Added version endpoint for CI/CD verification
  */
 @RestController
 @RequestMapping("/api/accounts")
@@ -24,7 +25,14 @@ import java.util.List;
 @Tag(name = "Account Service", description = "Manage user accounts and wallets")
 public class AccountController {
 
+    private static final String VERSION = "1.1.0";
     private final AccountService accountService;
+
+    @GetMapping("/version")
+    @Operation(summary = "Get service version", description = "Returns the current version of Account Service")
+    public ResponseEntity<String> getVersion() {
+        return ResponseEntity.ok("Account Service v" + VERSION + " - Built with CI/CD Pipeline");
+    }
 
     @PostMapping
     @Operation(summary = "Create new account", description = "Creates a new wallet account")
@@ -68,4 +76,3 @@ public class AccountController {
         return ResponseEntity.ok(response);
     }
 }
-

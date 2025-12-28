@@ -5,20 +5,71 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:  # Manual trigger - builds everything
 
 env:
   REGISTRY: ghcr.io
-  # Note: GitHub repository_owner preserves case, but Docker requires lowercase
-  # We'll convert to lowercase in each job that needs it
 
 jobs:
   # ============================================
-  # BUILD AND TEST
+  # DETECT WHAT CHANGED (Path-Based Filtering)
   # ============================================
-  build:
-    name: Build & Test
+  changes:
+    name: Detect Changes
     runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend: ${{ steps.filter.outputs.backend }}
+      api-gateway: ${{ steps.filter.outputs.api-gateway }}
+      account-service: ${{ steps.filter.outputs.account-service }}
+      transaction-service: ${{ steps.filter.outputs.transaction-service }}
+      notification-service: ${{ steps.filter.outputs.notification-service }}
+      workflow: ${{ steps.filter.outputs.workflow }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check for changes
+      uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          frontend:
+            - 'frontend/**'
+          backend:
+            - 'services/**'
+            - 'pom.xml'
+          api-gateway:
+            - 'services/api-gateway/**'
+          account-service:
+            - 'services/account-service/**'
+          transaction-service:
+            - 'services/transaction-service/**'
+          notification-service:
+            - 'services/notification-service/**'
+          workflow:
+            - '.github/workflows/**'
+
+    - name: Show detected changes
+      run: |
+        echo "Frontend changed: ${{ steps.filter.outputs.frontend }}"
+        echo "Backend changed: ${{ steps.filter.outputs.backend }}"
+        echo "API Gateway changed: ${{ steps.filter.outputs.api-gateway }}"
+        echo "Account Service changed: ${{ steps.filter.outputs.account-service }}"
+        echo "Transaction Service changed: ${{ steps.filter.outputs.transaction-service }}"
+        echo "Notification Service changed: ${{ steps.filter.outputs.notification-service }}"
+        echo "Workflow changed: ${{ steps.filter.outputs.workflow }}"
+
+  # ============================================
+  # BUILD AND TEST BACKEND (Only if backend changed)
+  # ============================================
+  build-backend:
+    name: Build & Test Backend
+    runs-on: ubuntu-latest
+    needs: changes
+    # Run if backend changed OR workflow changed OR manual trigger
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch'
     
     steps:
     - name: Checkout code
@@ -44,14 +95,48 @@ jobs:
         path: services/*/target/*.jar
 
   # ============================================
-  # BUILD AND PUSH DOCKER IMAGES
+  # BUILD FRONTEND (Only if frontend changed)
   # ============================================
-  docker:
-    name: Build & Push Docker Images
+  build-frontend:
+    name: Build Frontend
     runs-on: ubuntu-latest
-    needs: build
-    # Build images on both main and develop branches
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    needs: changes
+    # Run if frontend changed OR workflow changed OR manual trigger
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm run build
+
+  # ============================================
+  # DOCKER: BUILD AND PUSH BACKEND SERVICES
+  # ============================================
+  docker-backend:
+    name: Docker - ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: [changes, build-backend]
+    # Only on push to main/develop, and only if service changed
+    if: |
+      github.event_name == 'push' && 
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') &&
+      (needs.changes.outputs.backend == 'true' || needs.changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
     
     permissions:
       contents: read
@@ -59,13 +144,34 @@ jobs:
 
     strategy:
       matrix:
-        service: [api-gateway, account-service, transaction-service, notification-service]
+        include:
+          - service: api-gateway
+            changed: ${{ needs.changes.outputs.api-gateway }}
+          - service: account-service
+            changed: ${{ needs.changes.outputs.account-service }}
+          - service: transaction-service
+            changed: ${{ needs.changes.outputs.transaction-service }}
+          - service: notification-service
+            changed: ${{ needs.changes.outputs.notification-service }}
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Check if service should be built
+      id: should-build
+      run: |
+        # Build if this specific service changed, OR if common backend files changed, OR manual trigger
+        if [[ "${{ matrix.changed }}" == "true" ]] || [[ "${{ needs.changes.outputs.workflow }}" == "true" ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "build=true" >> $GITHUB_OUTPUT
+          echo "✅ Will build ${{ matrix.service }}"
+        else
+          echo "build=false" >> $GITHUB_OUTPUT
+          echo "⏭️ Skipping ${{ matrix.service }} (no changes)"
+        fi
+
     - name: Set up JDK 21
+      if: steps.should-build.outputs.build == 'true'
       uses: actions/setup-java@v4
       with:
         java-version: '21'
@@ -73,11 +179,13 @@ jobs:
         cache: maven
 
     - name: Build service
+      if: steps.should-build.outputs.build == 'true'
       run: |
         cd services/${{ matrix.service }}
         mvn clean package -DskipTests
 
     - name: Log in to GitHub Container Registry
+      if: steps.should-build.outputs.build == 'true'
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
@@ -85,15 +193,18 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Set up Docker Buildx
+      if: steps.should-build.outputs.build == 'true'
       uses: docker/setup-buildx-action@v3
 
-    - name: Extract metadata (branch and lowercase owner)
+    - name: Extract metadata
+      if: steps.should-build.outputs.build == 'true'
       id: meta
       run: |
         echo "branch=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
         echo "owner=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
     - name: Build and push Docker image
+      if: steps.should-build.outputs.build == 'true'
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -107,6 +218,56 @@ jobs:
         cache-to: type=gha,mode=max
 
   # ============================================
+  # DOCKER: BUILD AND PUSH FRONTEND
+  # ============================================
+  docker-frontend:
+    name: Docker - Frontend
+    runs-on: ubuntu-latest
+    needs: [changes, build-frontend]
+    # Only on push to main/develop, and only if frontend changed
+    if: |
+      github.event_name == 'push' && 
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') &&
+      (needs.changes.outputs.frontend == 'true' || needs.changes.outputs.workflow == 'true' || github.event_name == 'workflow_dispatch')
+    
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Extract metadata
+      id: meta
+      run: |
+        echo "branch=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+        echo "owner=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+    - name: Build and push Frontend Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/payflow-frontend:${{ steps.meta.outputs.branch }}
+          ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/payflow-frontend:${{ github.sha }}
+          ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/payflow-frontend:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # ============================================
   # DEPLOY TO AWS EC2 (K3s)
   # ============================================
   # NOTE: CD is disabled until AWS environment is ready
@@ -114,7 +275,8 @@ jobs:
   deploy:
     name: Deploy to K3s
     runs-on: ubuntu-latest
-    needs: docker
+    needs: [docker-backend, docker-frontend]
+    # Disabled until AWS is ready - remove 'false &&' to enable
     if: false && github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
@@ -146,6 +308,7 @@ jobs:
           kubectl rollout restart deployment -n payflow
           
           # Wait for rollout
+          kubectl rollout status deployment/frontend -n payflow --timeout=300s
           kubectl rollout status deployment/api-gateway -n payflow --timeout=300s
           kubectl rollout status deployment/account-service -n payflow --timeout=300s
           kubectl rollout status deployment/transaction-service -n payflow --timeout=300s
@@ -156,4 +319,3 @@ jobs:
 
     - name: Deployment Status
       run: echo "✅ Deployment completed successfully!"
-

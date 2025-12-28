@@ -1,9 +1,17 @@
+# Application Configuration for PayFlow Services
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: app-config
   namespace: payflow
 data:
+  # Kafka Configuration
   KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
-  SPRING_PROFILES_ACTIVE: "prod"
-
+  
+  # Spring Profile - use 'docker' profile which works with K8s service names
+  SPRING_PROFILES_ACTIVE: "docker"
+  
+  # Service Discovery URLs (K8s internal DNS)
+  ACCOUNT_SERVICE_URL: "http://account-service:8081"
+  TRANSACTION_SERVICE_URL: "http://transaction-service:8082"
+  NOTIFICATION_SERVICE_URL: "http://notification-service:8083"

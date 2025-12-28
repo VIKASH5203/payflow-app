@@ -17,7 +17,8 @@ spec:
     spec:
       containers:
       - name: notification-service
-        image: ghcr.io/VIKASH5203/payflow/notification-service:latest
+        image: ghcr.io/vikash5203/payflow-notification-service:latest
+        imagePullPolicy: IfNotPresent  # Use local images first
         ports:
         - containerPort: 8083
         envFrom:
@@ -25,21 +26,28 @@ spec:
             name: app-config
         resources:
           requests:
-            memory: "64Mi"
-            cpu: "50m"
+            memory: "256Mi"
+            cpu: "200m"
           limits:
-            memory: "128Mi"
-            cpu: "100m"
+            memory: "512Mi"
+            cpu: "500m"
+        startupProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8083
+          failureThreshold: 30
+          periodSeconds: 10
         livenessProbe:
           httpGet:
             path: /actuator/health
             port: 8083
-          initialDelaySeconds: 60
+          initialDelaySeconds: 0
           periodSeconds: 10
+          failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /actuator/health
             port: 8083
-          initialDelaySeconds: 30
+          initialDelaySeconds: 0
           periodSeconds: 5
 

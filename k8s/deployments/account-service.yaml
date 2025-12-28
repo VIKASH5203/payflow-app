@@ -17,7 +17,8 @@ spec:
     spec:
       containers:
       - name: account-service
-        image: ghcr.io/VIKASH5203/payflow/account-service:latest
+        image: ghcr.io/vikash5203/payflow-account-service:latest
+        imagePullPolicy: IfNotPresent  # Use local images first
         ports:
         - containerPort: 8081
         envFrom:
@@ -27,21 +28,29 @@ spec:
             name: db-secret
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
             memory: "256Mi"
             cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        # Startup probe - gives app time to start before liveness kicks in
+        startupProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8081
+          failureThreshold: 30
+          periodSeconds: 10
         livenessProbe:
           httpGet:
             path: /actuator/health
             port: 8081
-          initialDelaySeconds: 90
+          initialDelaySeconds: 0
           periodSeconds: 10
+          failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /actuator/health
             port: 8081
-          initialDelaySeconds: 60
+          initialDelaySeconds: 0
           periodSeconds: 5
 

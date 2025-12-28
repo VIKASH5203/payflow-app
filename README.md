@@ -4,6 +4,9 @@
 
 > Real-time Digital Wallet and Payment Platform built with Microservices Architecture
 
+<img width="1906" height="903" alt="image" src="https://github.com/user-attachments/assets/1b58c751-04c1-4955-9b84-f7903dfacf2a" />
+
+
 ## 🏗️ Architecture
 
 ```
@@ -132,6 +135,9 @@ java -jar target/account-service-1.0.0.jar
 - **Prometheus**: `http://<host>:9090`
 - **Grafana**: `http://<host>:3001`
 - **Kafdrop**: `http://<host>:9000`
+
+<img width="1893" height="926" alt="image" src="https://github.com/user-attachments/assets/9bf39279-51ed-4ac7-b6d8-22c280d4c817" />
+
 
 ## 👥 Authors
 

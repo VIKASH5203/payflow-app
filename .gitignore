@@ -63,3 +63,17 @@ build/
 *.pem
 *.key
 secrets.yaml
+
+# Cursor/IDE Chat Logs
+cursor_*.md
+*.conversation.md
+
+# Local environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
